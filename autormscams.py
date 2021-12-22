@@ -178,11 +178,13 @@ def main(year, month, rmsid):
     confirmed_dirs = [basename(confirmed_dir) for confirmed_dir in confirmed_dirs]
     archived_dirs = sorted(glob(join(RMS_DIR, "ArchivedFiles", f"{rmsid}_{year}{month:02d}*")))
     archived_dirs = [basename(archived_dir) for archived_dir in archived_dirs]
+    sequence_ids = {}
 
     # Handle nights that are not confirmed
     for archived_dir in archived_dirs:
         archived_date = datetime.strptime(archived_dir.split("_")[-3], "%Y%m%d")
         if archived_date.day in already_uploaded_days:
+            sequence_ids[archived_date] = sequence_ids.get(archived_date, 0) + 1
             continue
 
         if archived_dir in confirmed_dirs:
@@ -190,8 +192,9 @@ def main(year, month, rmsid):
 
         if get_num_detections(join(RMS_DIR, "ArchivedFiles", archived_dir), camsid) == 0:
             logger.info(f"Uploading zero: {archived_dir}")
-            # TODO: check sequenceid
-            upload_night(join(RMS_DIR, "ArchivedFiles", archived_dir), camsid)
+            sequence_ids[archived_date] = sequence_ids.get(archived_date, 0) + 1
+            sequenceid = sequence_ids[archived_date]
+            upload_night(join(RMS_DIR, "ArchivedFiles", archived_dir), camsid, sequenceid)
             continue
 
         print("To be confirmed:", join(RMS_DIR, "ArchivedFiles", archived_dir))
@@ -230,11 +233,14 @@ def main(year, month, rmsid):
             logger.info(f"Skipping {confirmed_dir} because it's empty")
             continue
         confirmed_date = datetime.strptime(confirmed_dir.split("_")[-3], "%Y%m%d")
+        # Increment sequenceid
+        sequence_ids[confirmed_date] = sequence_ids.get(confirmed_date, 0) + 1
         num_detections = get_num_detections(join(RMS_DIR, "ConfirmedFiles", confirmed_dir), camsid)
         if confirmed_date.day not in already_uploaded_days:
             logger.info(f"Uploading {confirmed_dir} ({num_detections} detections)")
             # TODO: check sequenceid
-            upload_night(join(RMS_DIR, "ConfirmedFiles", confirmed_dir), camsid)
+            sequenceid = sequence_ids[confirmed_date]
+            upload_night(join(RMS_DIR, "ConfirmedFiles", confirmed_dir), camsid, sequenceid)
 
 
 def start_cmn_binviewer(night_dir):
