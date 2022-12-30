@@ -16,6 +16,7 @@ from datetime import datetime, timedelta
 import configparser
 import sys
 import subprocess
+from argparse import ArgumentParser
 
 logger = logging.getLogger(__name__)
 
@@ -268,13 +269,18 @@ if __name__ == "__main__":
         level=logging.DEBUG,
     )
 
-    if len(sys.argv) > 1:
-        rmsids = sys.argv[1:]
+    parser = ArgumentParser(description="Upload data to CAMS ftp server, possibly after confirmation")
+    parser.add_argument("-d", "--data-dir", help="Just upload this data dir")
+    args = parser.parse_args()
+
+    if args.data_dir is not None:
+        rmsid = basename(args.data_dir)[:6]
+        camsid = get_camsid(rmsid)
+        upload_night(args.data_dir, camsid)
     else:
         rmsids = config["rms"]["rmsids"].split(",")
-
-    now = datetime.now()
-    for rmsid in rmsids:
-        lastmonth = now.replace(day=1) - timedelta(days=1)
-        main(lastmonth.year, lastmonth.month, rmsid)
-        main(now.year, now.month, rmsid)
+        now = datetime.now()
+        for rmsid in rmsids:
+            lastmonth = now.replace(day=1) - timedelta(days=1)
+            main(lastmonth.year, lastmonth.month, rmsid)
+            main(now.year, now.month, rmsid)
