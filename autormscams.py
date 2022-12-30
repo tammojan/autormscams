@@ -109,7 +109,7 @@ def get_uploaded_days(camsid, year, month):
         list of integers (day numbers)
     """
     logger.debug(f"Fetching already uploaded days in {year}-{month:02} for {rmsid}")
-    pattern = re.compile(rf"^{year}_{month:02}_(\d\d)_{camsid:06d}_.*\.zip$")
+    pattern = re.compile(rf"^{year}_?{month:02}_?(\d\d)_{camsid:06d}_.*\.zip$")
     uploaded_days = []
     with ftplib.FTP(host=FTPSITE, user=FTPUSER, passwd=FTPPASSWORD) as ftp:
         ftp.cwd(FTPDIR)
@@ -120,9 +120,21 @@ def get_uploaded_days(camsid, year, month):
             if match:
                 uploaded_days.append(int(match.groups(0)[0]))
 
-        # Look for files in FTPDIR/YEAR/MONTH
+        # Look for files in FTPDIR/YEAR/
         try:
             ftp.cwd(f"{year}")
+        except ftplib.error_perm:
+            print(f"Dirname {year}_{month:02d} missing")
+            return uploaded_days
+
+        for name, _ in ftp.mlsd():
+            match = pattern.match(name)
+            if match:
+                print(f"Found {int(match.groups(0)[0])} in FTPDIR/YEAR")
+                uploaded_days.append(int(match.groups(0)[0]))
+
+        # Look for files in FTPDIR/YEAR/YEAR_MONTH
+        try:
             ftp.cwd(f"{year}_{month:02d}")
         except ftplib.error_perm:
             return uploaded_days
@@ -190,14 +202,16 @@ def main(year, month, rmsid):
         if archived_dir in confirmed_dirs:
             continue
 
-        if get_num_detections(join(RMS_DIR, "ArchivedFiles", archived_dir), camsid) == 0:
+        num_detections = get_num_detections(join(RMS_DIR, "ArchivedFiles", archived_dir), camsid)
+
+        if num_detections == 0:
             logger.info(f"Uploading zero: {archived_dir}")
             sequence_ids[archived_date] = sequence_ids.get(archived_date, 0) + 1
             sequenceid = sequence_ids[archived_date]
             upload_night(join(RMS_DIR, "ArchivedFiles", archived_dir), camsid, sequenceid)
             continue
 
-        print("To be confirmed:", join(RMS_DIR, "ArchivedFiles", archived_dir))
+        print(f"To be confirmed :", join(RMS_DIR, "ArchivedFiles", archived_dir), f"({num_detections} detections)")
         do_confirm = input("Confirm now? ")
         if do_confirm[0].lower() == "y":
             try:
