@@ -280,7 +280,7 @@ if __name__ == "__main__":
 
     if args.data_dir is not None:
         rmsid = basename(args.data_dir)[:6]
-        camsid = config["rms"]["camsid"]
+        camsid = int(config["rms"]["camsid"])
         upload_night(args.data_dir, camsid)
     else:
         rmsids = config["rms"]["rmsids"].split(",")
