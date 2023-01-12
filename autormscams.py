@@ -177,7 +177,7 @@ def get_camsid(rmsid):
     return int(rmsconfig["System"]["cams_code"])
 
 
-def main(year, month, rmsid):
+def main(year, month, rmsid, skip_confirmation=False):
     """
     Upload all files for one month (that were not yet uploaded). Not-confirmed directories
     will be reported (in a future version CMN_binviewer could be started).
@@ -192,6 +192,10 @@ def main(year, month, rmsid):
     archived_dirs = sorted(glob(join(RMS_DIR, "ArchivedFiles", f"{rmsid}_{year}{month:02d}*")))
     archived_dirs = [basename(archived_dir) for archived_dir in archived_dirs]
     sequence_ids = {}
+
+    if skip_confirmation:
+        confirmed_dirs = archived_dirs
+        archived_dirs = []
 
     # Handle nights that are not confirmed
     for archived_dir in archived_dirs:
@@ -271,6 +275,7 @@ if __name__ == "__main__":
 
     parser = ArgumentParser(description="Upload data to CAMS ftp server, possibly after confirmation")
     parser.add_argument("-d", "--data-dir", help="Just upload this data dir")
+    parser.add_argument("-s", "--skip-confirmation", help="Skip confirmation, upload all ArchivedFiles", action="store_true")
     args = parser.parse_args()
 
     if args.data_dir is not None:
@@ -282,5 +287,5 @@ if __name__ == "__main__":
         now = datetime.now()
         for rmsid in rmsids:
             lastmonth = now.replace(day=1) - timedelta(days=1)
-            main(lastmonth.year, lastmonth.month, rmsid)
+            main(lastmonth.year, lastmonth.month, rmsid, skip_confirmation=args.skip_confirmation)
             main(now.year, now.month, rmsid)
