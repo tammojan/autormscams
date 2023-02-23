@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+# !/usr/bin/env python
 #
 # SPDX-FileCopyrightText: © 2021 Tammo Jan Dijkema <T.J.Dijkema@gmail.com>
 #
@@ -17,6 +17,7 @@ import configparser
 import sys
 import subprocess
 from argparse import ArgumentParser
+import hashlib
 
 logger = logging.getLogger(__name__)
 
@@ -40,14 +41,18 @@ def get_ftpfilename(night_dir, camsid):
     pattern = re.compile(rf".*FTPdetectinfo_{camsid:06d}[0-9_]*R?.txt")
     allftpfilenames = glob(join(night_dir, f"FTPdetectinfo_{camsid:06d}[0-9_]*.txt"))
     ftpfilenames = [filename for filename in allftpfilenames if pattern.match(filename)]
-    assert(len(ftpfilenames) == 1)
+    assert (len(ftpfilenames) == 1)
     return ftpfilenames[0]
 
+
+def get_md5(ftp, file_name):
+    hash_md5 = hashlib.md5()
+    ftp.retrbinary('RETR ' + file_name, hash_md5.update)
+    return hash_md5.hexdigest()
 
 def upload_night(night_dir, camsid, sequenceid=1):
     """
     Upload one night of detections. The appropriate directory will be created if necessary.
-
     Args:
         night_dir (str): Full path to the night directory
         camsid (int): CAMS station id
@@ -76,36 +81,54 @@ def upload_night(night_dir, camsid, sequenceid=1):
         zf.write(calfilename, arcname=basename(calfilename))
         zf.write(ftpfilename, arcname=basename(ftpfilename))
 
+    with open(zipfilepath, 'rb') as f:
+        file_content = f.read()
+        md5_hash = hashlib.md5(file_content).hexdigest()
+        logger.debug('md5_hash: %s', md5_hash)
+
     with ftplib.FTP(host=FTPSITE, user=FTPUSER, passwd=FTPPASSWORD) as ftp:
         ftp.cwd(FTPDIR)
 
-        #try:
+        # try:
         #    ftp.mkd(f"{startdate:%Y}")
-        #except ftplib.error_perm:
+        # except ftplib.error_perm:
         #    pass
 
-        #ftp.cwd(f"{startdate:%Y}")
+        # ftp.cwd(f"{startdate:%Y}")
 
-        #try:
+        # try:
         #    ftp.mkd(f"{startdate:%Y_%m}")
-        #except ftplib.error_perm:
+        # except ftplib.error_perm:
         #    pass
 
-        #ftp.cwd(f"{startdate:%Y_%m}")
+        # ftp.cwd(f"{startdate:%Y_%m}")
 
         with open(zipfilepath, "rb") as zf:
             ftp.storbinary(f"STOR {zipfilename}", fp=zf)
+            remote_md5_hash = get_md5(ftp, zipfilename)
+            logger.debug('remote_md5_hash: %s', remote_md5_hash)
+
+        if md5_hash == remote_md5_hash:
+            logger.debug('Bestand is volledig geüpload')
+            now = datetime.now()
+
+            # Maak de inhoud van het bestand
+            content = f"UTC: {now}\n"
+            txt_file = join(night_dir, 'CamsFTPupload.txt')
+            # Schrijf de inhoud van het bestand naar een nieuw bestand 'CamsFTPupload.txt'
+            with open(txt_file, 'w') as f:
+                f.write(content)
+        else:
+            logger.debug('Bestand upload mislukt')
 
 
 def get_uploaded_days(camsid, year, month):
     """
     Get a list of all uploaded days for one month.
-
     Args:
         station id (int)
         year (int)
         month (int)
-
     Returns:
         list of integers (day numbers)
     """
@@ -151,7 +174,7 @@ def get_uploaded_days(camsid, year, month):
 def get_num_detections(night_dir, camsid):
     """
     Get the number of detections for one night out of the CAMS-FTPdetectinfo file
-    
+
     Returns -1 in case an FTPdetectinfo file could not be found
     """
     try:
@@ -275,7 +298,8 @@ if __name__ == "__main__":
 
     parser = ArgumentParser(description="Upload data to CAMS ftp server, possibly after confirmation")
     parser.add_argument("-d", "--data-dir", help="Just upload this data dir")
-    parser.add_argument("-s", "--skip-confirmation", help="Skip confirmation, upload all ArchivedFiles", action="store_true")
+    parser.add_argument("-s", "--skip-confirmation", help="Skip confirmation, upload all ArchivedFiles",
+                        action="store_true")
     args = parser.parse_args()
 
     if args.data_dir is not None:
@@ -289,3 +313,4 @@ if __name__ == "__main__":
             lastmonth = now.replace(day=1) - timedelta(days=1)
             main(lastmonth.year, lastmonth.month, rmsid, skip_confirmation=args.skip_confirmation)
             main(now.year, now.month, rmsid)
+
