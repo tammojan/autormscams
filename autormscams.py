@@ -44,7 +44,7 @@ def get_ftpfilename(night_dir, camsid):
     return ftpfilenames[0]
 
 
-def upload_night(night_dir, camsid, sequenceid=1):
+def upload_night(night_dir, camsid, sequenceid=1, dry_run=False):
     """
     Upload one night of detections. The appropriate directory will be created if necessary.
 
@@ -94,7 +94,10 @@ def upload_night(night_dir, camsid, sequenceid=1):
         #ftp.cwd(f"{startdate:%Y_%m}")
 
         with open(zipfilepath, "rb") as zf:
-            ftp.storbinary(f"STOR {zipfilename}", fp=zf)
+            if dry_run:
+                print(f"Would upload {zipfilename} to {FTPDIR}")
+            else:
+                ftp.storbinary(f"STOR {zipfilename}", fp=zf)
 
 
 def get_uploaded_days(camsid, year, month):
@@ -113,7 +116,9 @@ def get_uploaded_days(camsid, year, month):
     pattern = re.compile(rf"^{year}_?{month:02}_?(\d\d)_{camsid:06d}_.*\.zip$")
     uploaded_days = []
     with ftplib.FTP(host=FTPSITE, user=FTPUSER, passwd=FTPPASSWORD) as ftp:
+        logger.debug("Connection opened")
         ftp.cwd(FTPDIR)
+        logger.debug("cwd succeeded")
 
         # Look for files in FTPDIR
         for name, _ in ftp.mlsd():
@@ -121,17 +126,18 @@ def get_uploaded_days(camsid, year, month):
             if match:
                 uploaded_days.append(int(match.groups(0)[0]))
 
-        # Look for files in FTPDIR/YEAR/
+        # Look for files in FTPDIR/2507
         try:
             ftp.cwd(f"{year}")
+            ftp.cwd(f"{str(year)[-2:]}{month:02d}")
         except ftplib.error_perm:
-            print(f"Dirname {year}_{month:02d} missing")
+            print(f"Dirname {year}{month:02d} missing")
             return uploaded_days
 
         for name, _ in ftp.mlsd():
             match = pattern.match(name)
             if match:
-                print(f"Found {int(match.groups(0)[0])} in FTPDIR/YEAR")
+                #print(f"Found {int(match.groups(0)[0])} in FTPDIR/YEAR")
                 uploaded_days.append(int(match.groups(0)[0]))
 
         # Look for files in FTPDIR/YEAR/YEAR_MONTH
@@ -177,7 +183,7 @@ def get_camsid(rmsid):
     return int(rmsconfig["System"]["cams_code"])
 
 
-def main(year, month, rmsid, skip_confirmation=False):
+def main(year, month, rmsid, dry_run=False):
     """
     Upload all files for one month (that were not yet uploaded). Not-confirmed directories
     will be reported (in a future version CMN_binviewer could be started).
@@ -190,12 +196,9 @@ def main(year, month, rmsid, skip_confirmation=False):
     confirmed_dirs = sorted(glob(join(RMS_DIR, "ConfirmedFiles", f"{rmsid}_{year}{month:02d}*")))
     confirmed_dirs = [basename(confirmed_dir) for confirmed_dir in confirmed_dirs]
     archived_dirs = sorted(glob(join(RMS_DIR, "ArchivedFiles", f"{rmsid}_{year}{month:02d}*")))
+    archived_dirs = [archived_dir for archived_dir in archived_dirs if not archived_dir.endswith(".tar.bz2")]
     archived_dirs = [basename(archived_dir) for archived_dir in archived_dirs]
     sequence_ids = {}
-
-    if skip_confirmation:
-        confirmed_dirs = archived_dirs
-        archived_dirs = []
 
     # Handle nights that are not confirmed
     for archived_dir in archived_dirs:
@@ -209,11 +212,11 @@ def main(year, month, rmsid, skip_confirmation=False):
 
         num_detections = get_num_detections(join(RMS_DIR, "ArchivedFiles", archived_dir), camsid)
 
-        if num_detections == 0:
-            logger.info(f"Uploading zero: {archived_dir}")
+        if True or num_detections == 0:
+            logger.info(f"Uploading {archived_dir} with {num_detections} detections")
             sequence_ids[archived_date] = sequence_ids.get(archived_date, 0) + 1
             sequenceid = sequence_ids[archived_date]
-            upload_night(join(RMS_DIR, "ArchivedFiles", archived_dir), camsid, sequenceid)
+            upload_night(join(RMS_DIR, "ArchivedFiles", archived_dir), camsid, sequenceid, dry_run=args.dry_run)
             continue
 
         print(f"To be confirmed :", join(RMS_DIR, "ArchivedFiles", archived_dir), f"({num_detections} detections)")
@@ -259,7 +262,7 @@ def main(year, month, rmsid, skip_confirmation=False):
             logger.info(f"Uploading {confirmed_dir} ({num_detections} detections)")
             # TODO: check sequenceid
             sequenceid = sequence_ids[confirmed_date]
-            upload_night(join(RMS_DIR, "ConfirmedFiles", confirmed_dir), camsid, sequenceid)
+            upload_night(join(RMS_DIR, "ConfirmedFiles", confirmed_dir), camsid, sequenceid, dry_run=dry_run)
 
 
 def start_cmn_binviewer(night_dir):
@@ -275,17 +278,17 @@ if __name__ == "__main__":
 
     parser = ArgumentParser(description="Upload data to CAMS ftp server, possibly after confirmation")
     parser.add_argument("-d", "--data-dir", help="Just upload this data dir")
-    parser.add_argument("-s", "--skip-confirmation", help="Skip confirmation, upload all ArchivedFiles", action="store_true")
+    parser.add_argument("-n", "--dry-run", help="Dry run", action='store_true')
     args = parser.parse_args()
 
     if args.data_dir is not None:
         rmsid = basename(args.data_dir)[:6]
-        camsid = int(config["rms"]["camsid"])
-        upload_night(args.data_dir, camsid)
+        camsid = get_camsid(rmsid)
+        upload_night(args.data_dir, camsid, dry_run=args.dry_run)
     else:
         rmsids = config["rms"]["rmsids"].split(",")
         now = datetime.now()
         for rmsid in rmsids:
             lastmonth = now.replace(day=1) - timedelta(days=1)
-            main(lastmonth.year, lastmonth.month, rmsid, skip_confirmation=args.skip_confirmation)
-            main(now.year, now.month, rmsid)
+            main(lastmonth.year, lastmonth.month, rmsid, dry_run=args.dry_run)
+            main(now.year, now.month, rmsid, dry_run=args.dry_run)
